@@ -81,7 +81,7 @@ public final class ControllerReader {
             min = minValue;
             max = maxValue;
         }
-        protected float value(float outMin, float outMax) throws NoControllerException {
+        protected float value(float outMin, float outMax) throws NoControllerException, NoSuchAxisException {
             float scale = (outMax - outMin) / (max - min);
             float rawVal;
             rawVal = rawAxisValue(controller, this.id);
@@ -91,14 +91,18 @@ public final class ControllerReader {
         }
     }
     
-    private static float rawAxisValue(ControllerID cont, AxisID axis) throws NoControllerException {
+    public static float rawAxisValue(ControllerID cont, AxisID axis) throws NoControllerException, NoSuchAxisException {
         FloatBuffer fb = glfwGetJoystickAxes(cont.value());
         if (fb == null) {
             System.err.println("Could not find any joystick axes of the first controller.");
             System.out.println("Aborting.");
             throw new NoControllerException();
         }
-        return fb.get(axis.value());
+        try {
+            return fb.get(axis.value());
+        } catch (NullPointerException e) {
+            throw new NoSuchAxisException("The specified axis could not be found on the specified controller.");
+        }
     }
     
     public void setJoystickAxes(Joystick js, Axis xAxis, Axis yAxis) {
@@ -112,7 +116,7 @@ public final class ControllerReader {
         JoystickDeadzones.put(js, deadRadius);
     }
     
-    public JoystickFilteredState getJoystickState(Joystick js) throws NotConfiguredException, NoControllerException {
+    public JoystickFilteredState getJoystickState(Joystick js) throws NotConfiguredException, NoControllerException, NoSuchAxisException {
         
         float xstick, ystick, mag, angle;
         
@@ -144,7 +148,7 @@ public final class ControllerReader {
         
         return new JoystickFilteredState(mag,angle);
     }
-    public TriggerFilteredState getTriggerState(Trigger t) throws NoControllerException, NotConfiguredException {
+    public TriggerFilteredState getTriggerState(Trigger t) throws NoControllerException, NotConfiguredException, NoSuchAxisException {
         
         Axis trigAxis;
         
