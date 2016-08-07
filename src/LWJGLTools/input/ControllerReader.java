@@ -6,6 +6,7 @@
 package LWJGLTools.input;
 
 import java.nio.FloatBuffer;
+import java.util.HashMap;
 import static org.lwjgl.glfw.GLFW.*;
 
 /**
@@ -24,10 +25,14 @@ public final class ControllerReader {
         //Axis 6 - unused
         //Axis 7 - unused
     
-    int controllerID;
+    HashMap<Joystick, Axis[]> JoystickAxes;
+    HashMap<Joystick, Float> JoystickDeadzones;
+    HashMap<Trigger, Axis> TriggerAxes;
     
-    public ControllerReader(ControllerID cid) {
-        controllerID = cid.value();
+    public ControllerReader() {
+        JoystickAxes = new HashMap<Joystick, Axis[]>();
+        JoystickDeadzones = new HashMap<Joystick, Float>();
+        TriggerAxes = new HashMap<Trigger, Axis>();
     }
     
     public enum ControllerID {
@@ -46,62 +51,110 @@ public final class ControllerReader {
         }
     }
     
-    public JoystickFilteredState getJoystickState(Joystick js) throws NoControllerException, NoSuchAxisException {
-        FloatBuffer fb = glfwGetJoystickAxes(controllerID);
+    public enum AxisID {
+        ZERO(0),
+        ONE(1),
+        TWO(2),
+        THREE(3),
+        FOUR(4),
+        FIVE(5);
+        
+        private int axisID;
+        
+        private AxisID(int id) {
+            this.axisID = id;
+        }
+        
+        public int value() {
+            return this.axisID;
+        }
+        
+    }
+    
+    public static class Axis {
+        private AxisID id;
+        private ControllerID controller;
+        private float min, max;
+        public Axis(ControllerID myControllerID, AxisID myAxisID, float minValue, float maxValue) {
+            id = myAxisID;
+            controller = myControllerID;
+            min = minValue;
+            max = maxValue;
+        }
+        protected float value(float outMin, float outMax) throws NoControllerException {
+            float scale = (outMax - outMin) / (max - min);
+            float rawVal;
+            rawVal = rawAxisValue(controller, this.id);
+            rawVal = Math.max(min, rawVal);
+            rawVal = Math.min(max, rawVal);
+            return (rawVal - min)*scale + outMin;
+        }
+    }
+    
+    private static float rawAxisValue(ControllerID cont, AxisID axis) throws NoControllerException {
+        FloatBuffer fb = glfwGetJoystickAxes(cont.value());
         if (fb == null) {
-            // Could not find the gamepad joystick
             System.err.println("Could not find any joystick axes of the first controller.");
             System.out.println("Aborting.");
             throw new NoControllerException();
         }
+        return fb.get(axis.value());
+    }
+    
+    public void setJoystickAxes(Joystick js, Axis xAxis, Axis yAxis) {
+        Axis[] leftRightAxes = new Axis[]{xAxis, yAxis};
+        JoystickAxes.put(js, leftRightAxes);
+    }
+    public void setTriggerAxis(Trigger trig, Axis axis) {
+        TriggerAxes.put(trig, axis);
+    }
+    public void setJoystickDeadzone(Joystick js, float deadRadius) {
+        JoystickDeadzones.put(js, deadRadius);
+    }
+    
+    public JoystickFilteredState getJoystickState(Joystick js) throws NotConfiguredException, NoControllerException {
         
         float xstick, ystick, mag, angle;
         
-        switch (js) {
-            case LEFT:
-                xstick = fb.get(0);
-                ystick = fb.get(1);
-                break;
-            case RIGHT:
-                xstick = fb.get(3);
-                ystick = fb.get(4);
-                break;
-            default:
-                throw new NoSuchAxisException();
+        Axis xAxis, yAxis;
+        try {
+            xAxis = JoystickAxes.get(js)[0];
+            yAxis = JoystickAxes.get(js)[1];
+        } catch (NullPointerException e) {
+            throw new NotConfiguredException("Requested joystick is not properly configured.");
         }
         
+        xstick = xAxis.value(-1, 1);
+        ystick = yAxis.value(-1, 1);
+        
         mag = (float)Math.sqrt((xstick*xstick) + (ystick*ystick));
-        //Need a deadzone, etc
-        mag = (float)Math.min(Math.max(mag-0.3, 0),0.65)/0.65f;
+        // Deadzone
+        float deadRad, dilate;
+        try {
+            deadRad = JoystickDeadzones.get(js);
+        } catch (NullPointerException e) {
+            throw new NotConfiguredException("No deadzone set for given joystick.");
+        }
+        dilate = 1 / (1 - deadRad);
+        mag = (float)Math.max(mag-deadRad, 0)*dilate;
+        // The actual range of the joystick is a SQUARE whose circumscribed circle has a radius of root 2.
+        // To deal with this, I'll simply cap "mag" at 1.
+        mag = (float)Math.min(mag, 1);
         angle = (float)Math.atan2(ystick, xstick);
         
         return new JoystickFilteredState(mag,angle);
     }
-    public TriggerFilteredState getTriggerState(Trigger t) throws NoSuchAxisException, NoControllerException {
-        FloatBuffer fb = glfwGetJoystickAxes(controllerID);
-        if (fb == null) {
-            // Could not find the gamepad joystick
-            System.err.println("Could not find any joystick axes of the first controller.");
-            System.out.println("Aborting.");
-            throw new NoControllerException();
+    public TriggerFilteredState getTriggerState(Trigger t) throws NoControllerException, NotConfiguredException {
+        
+        Axis trigAxis;
+        
+        try {
+            trigAxis = TriggerAxes.get(t);
+        } catch (NullPointerException e) {
+            throw new NotConfiguredException("Requested joystick is not properly configured.");
         }
         
-        float value;
-        
-        switch (t) {
-            case LEFT:
-                value = fb.get(2);
-                break;
-            case RIGHT:
-                value = fb.get(5);
-                break;
-            default:
-                throw new NoSuchAxisException();
-        }
-        value = (value*1.2f+1f)/2f;
-        value = Math.max(0, value);
-        value = Math.min(1, value);
-        return new TriggerFilteredState(value);
+        return new TriggerFilteredState(trigAxis.value(0, 1));
     }
     
     public enum Joystick {
@@ -138,7 +191,7 @@ public final class ControllerReader {
         }
     }
     
-    public class NoControllerException extends Exception {
+    public static class NoControllerException extends Exception {
         
         public NoControllerException(String msg) {
             super(msg);
@@ -147,7 +200,16 @@ public final class ControllerReader {
             super();
         }
     }
-    public class NoSuchAxisException extends Exception {
+    public static class NotConfiguredException extends Exception {
+        
+        public NotConfiguredException(String msg) {
+            super(msg);
+        }
+        public NotConfiguredException() {
+            super();
+        }
+    }
+    public static class NoSuchAxisException extends Exception {
         
         public NoSuchAxisException(String msg) {
             super(msg);
