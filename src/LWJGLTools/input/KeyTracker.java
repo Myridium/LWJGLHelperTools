@@ -15,27 +15,27 @@ public class KeyTracker {
     
     long myWindow;
     int myKey;
-    int state;
+    boolean state;
     
     public KeyTracker(long window, int key) {
         myKey = key;
         myWindow = window;
-        state = glfwGetKey(myWindow,myKey);
+        state = KeyboardReader.isPressed(myWindow,myKey);
     }
     
     public boolean isFreshlyPressed() {
-        if (state == 1) {
+        if (state) {
             updateState();
             return false;
         }
         
-        if (updateState() == 1)
+        if (updateState())
             return true;
         
         return false;
     }
     
-    private int updateState() {
-        return (state = glfwGetKey(myWindow,myKey));
+    private boolean updateState() {
+        return (state = KeyboardReader.isPressed(myWindow, myKey));
     }
 }

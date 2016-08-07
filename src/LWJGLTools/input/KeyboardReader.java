@@ -35,4 +35,8 @@ public class KeyboardReader {
         }
         
     }
+    
+    public static boolean isPressed(long window, int key) {
+        return (glfwGetKey(window,key) == 1);
+    }
 }
