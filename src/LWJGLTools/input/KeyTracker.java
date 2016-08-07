@@ -5,8 +5,6 @@
  */
 package LWJGLTools.input;
 
-import static org.lwjgl.glfw.GLFW.glfwGetKey;
-
 /**
  *
  * @author murdock
