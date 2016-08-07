@@ -5,9 +5,27 @@
  */
 package LWJGLTools.input;
 
+import java.io.File;
+import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.util.HashMap;
+import java.util.Map.Entry;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import javax.xml.parsers.*;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.Element;
+import org.w3c.dom.Attr;
+import org.w3c.dom.Document;
 import static org.lwjgl.glfw.GLFW.*;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 /**
  * Make sure that glfwPollEvents() is called before using the methods in here.
@@ -78,6 +96,8 @@ public final class ControllerReader {
         public Axis(ControllerID myControllerID, AxisID myAxisID, float minValue, float maxValue) {
             id = myAxisID;
             controller = myControllerID;
+            
+            // These are MISNOMERS! "min" refers to the down/left/not pressed position.
             min = minValue;
             max = maxValue;
         }
@@ -85,9 +105,59 @@ public final class ControllerReader {
             float scale = (outMax - outMin) / (max - min);
             float rawVal;
             rawVal = rawAxisValue(controller, this.id);
-            rawVal = Math.max(min, rawVal);
-            rawVal = Math.min(max, rawVal);
+            
+            // Again, max is not actually the max.
+            if (max > min) {
+                rawVal = Math.max(min, rawVal);
+                rawVal = Math.min(max, rawVal);
+            } else {
+                rawVal = Math.max(max, rawVal);
+                rawVal = Math.min(min, rawVal);
+            }
             return (rawVal - min)*scale + outMin;
+        }
+        protected Element getXMLNode(Document doc) {
+            Element el =                doc.createElement("axis");
+            
+            Element elMin =             doc.createElement("min");
+            Element elMax =             doc.createElement("max");
+            Element elControllerID =    doc.createElement("controllerID");
+            Element elAxisID =          doc.createElement("axisID");
+            
+            elMin.setTextContent(String.valueOf(min));
+            elMax.setTextContent(String.valueOf(max));
+            elControllerID.setTextContent(controller.name());
+            elAxisID.setTextContent(id.name());
+            
+            el.appendChild(elMin);
+            el.appendChild(elMax);
+            el.appendChild(elControllerID);
+            el.appendChild(elAxisID);
+            
+            return el;
+        }
+        protected static Axis parseXMLNode(Element axisEl) {
+            
+            ControllerID cid = ControllerID.valueOf(axisEl.getElementsByTagName("controllerID").item(0).getTextContent());
+            AxisID aid = AxisID.valueOf(axisEl.getElementsByTagName("axisID").item(0).getTextContent());
+            float min = Float.valueOf(axisEl.getElementsByTagName("min").item(0).getTextContent());
+            float max = Float.valueOf(axisEl.getElementsByTagName("max").item(0).getTextContent());
+
+            Axis axis = new Axis(cid, aid, min, max);
+            return axis;
+            
+        }
+        public AxisID getAxisID() {
+            return id;
+        }
+        public ControllerID getControllerID() {
+            return controller;
+        }
+        public float getMin() {
+            return min;
+        }
+        public float getMax() {
+            return max;
         }
     }
     
@@ -169,7 +239,177 @@ public final class ControllerReader {
         LEFT,
         RIGHT;
     }
+    
+    public boolean writeConfig(String dir) {
+        try {
+
+		DocumentBuilderFactory docFactory = DocumentBuilderFactory.newInstance();
+		DocumentBuilder docBuilder = docFactory.newDocumentBuilder();
+
+		// Create the root element of the document.
+		Document doc = docBuilder.newDocument();
+		Element rootElement = doc.createElement("Configuration");
+		doc.appendChild(rootElement);
+
+		// Adding Joystick child elements.
+                Element joyEl;
+                Element xAxisEl, yAxisEl, deadzoneEl;
+                for (Joystick js : Joystick.values()) {
+                    joyEl = doc.createElement("joystick");
+                    joyEl.setAttribute("which", js.name());
+                    
+                    // Adding the axes
+                    if (JoystickAxes.containsKey(js)) {
+                        
+                        Axis xAxis, yAxis;
+                        xAxis = JoystickAxes.get(js)[0];
+                        yAxis = JoystickAxes.get(js)[1];
+                        
+                        xAxisEl = xAxis.getXMLNode(doc);
+                        xAxisEl.setAttribute("which", "x");
+                        yAxisEl = yAxis.getXMLNode(doc);
+                        yAxisEl.setAttribute("which", "y");
+                        
+                        joyEl.appendChild(xAxisEl);
+                        joyEl.appendChild(yAxisEl);
+                        
+                    }
+                    
+                    // Adding the deadzone
+                    if (JoystickDeadzones.containsKey(js)) {
+                        float val = JoystickDeadzones.get(js);
+                        deadzoneEl = doc.createElement("deadzone");
+                        deadzoneEl.setTextContent(String.valueOf(val));
+                        
+                        joyEl.appendChild(deadzoneEl);
+                    }
+                    
+                    rootElement.appendChild(joyEl);
+                    
+                }
+                
+                Element trigEl, axisEl;
+                
+                for (Trigger trig : Trigger.values()) {
+                    
+                    trigEl = doc.createElement("trigger");
+                    trigEl.setAttribute("which", trig.name());
+                        
+                    if (TriggerAxes.containsKey(trig)) {
+                        axisEl = TriggerAxes.get(trig).getXMLNode(doc);
+                        trigEl.appendChild(axisEl);
+                    }
+                    
+                    rootElement.appendChild(trigEl);
+                }
+                
+                
+		TransformerFactory transformerFactory = TransformerFactory.newInstance();
+		Transformer transformer = transformerFactory.newTransformer();
+                
+                // Adds some sensible formatting to the document
+                transformer.setOutputProperty(OutputKeys.INDENT, "yes");
+                transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
+                
+		DOMSource source = new DOMSource(doc);
+		StreamResult result = new StreamResult(new File(dir));
+
+		// Output to console for testing
+		// StreamResult result = new StreamResult(System.out);
+
+		transformer.transform(source, result);
+
+		System.out.println("Configuration XML saved.");
+                
+                return true;
+
+	  } catch (ParserConfigurationException pce) {
+		pce.printStackTrace();
+	  } catch (TransformerException tfe) {
+		tfe.printStackTrace();
+	  }
             
+        return false;
+    }
+    public boolean readConfig(String dir) {
+        try {
+            File xmlFile = new File(dir);
+            DocumentBuilderFactory dbFactory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder dBuilder = dbFactory.newDocumentBuilder();
+            Document doc = dBuilder.parse(xmlFile);
+            
+            //Not necessary for my particular XML files:
+            //doc.getDocumentElement().normalize();
+            //See
+            //http://stackoverflow.com/questions/13786607/normalization-in-dom-parsing-with-java-how-does-it-work
+            
+            Element rootNode = doc.getDocumentElement();
+            
+            // Fetching Joystick configuration
+            NodeList joystickNodes = rootNode.getElementsByTagName("joystick");
+            for (int i = 0; i < joystickNodes.getLength(); i++) {
+                Element jsNode = (Element)joystickNodes.item(i);
+                
+                Joystick which = Joystick.valueOf(jsNode.getAttribute("which"));
+                Axis xAxis = null, yAxis = null;
+                float deadzone = Float.valueOf(jsNode.getElementsByTagName("deadzone").item(0).getTextContent());
+                
+                
+                NodeList axesEl = jsNode.getElementsByTagName("axis");
+                for (int j=0; j < axesEl.getLength(); j++) {
+                    Element axisEl = (Element) axesEl.item(j);
+                    
+                    Axis axis = Axis.parseXMLNode(axisEl);
+                    
+                    switch (axisEl.getAttribute("which")) {
+                        
+                        case "x":
+                            xAxis = axis;
+                            break;
+                        case "y":
+                            yAxis = axis;
+                            break;
+                        default:
+                            break;
+                    }
+                    
+                }
+                
+                this.setJoystickAxes(which, xAxis, yAxis);
+                this.setJoystickDeadzone(which, deadzone);
+                
+            }
+            //////////////////////////////////////
+            
+            // Fetching trigger configuration:
+            NodeList triggerNodes = rootNode.getElementsByTagName("trigger");
+            for (int i=0; i < triggerNodes.getLength(); i++) {
+                Element trigEl = (Element)triggerNodes.item(i);
+                
+                Element axisEl = (Element)trigEl.getElementsByTagName("axis").item(0);
+                Axis axis = Axis.parseXMLNode(axisEl);
+                
+                Trigger trig = Trigger.valueOf(trigEl.getAttribute("which"));
+                
+                this.setTriggerAxis(trig, axis);
+                
+                
+            }
+            
+            return true;
+            
+        } catch (ParserConfigurationException ex) {
+            Logger.getLogger(ControllerReader.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (SAXException ex) {
+            Logger.getLogger(ControllerReader.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (IOException ex) {
+            Logger.getLogger(ControllerReader.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        
+        return false;
+        
+    }        
+    
     // Varies from 0 to 1
     public final class TriggerFilteredState {
         private float value;
