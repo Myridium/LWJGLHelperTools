@@ -101,7 +101,7 @@ public final class ControllerReader {
             min = minValue;
             max = maxValue;
         }
-        protected float value(float outMin, float outMax) throws NoControllerException, NoSuchAxisException {
+        public float value(float outMin, float outMax) throws NoControllerException, NoSuchAxisException {
             float scale = (outMax - outMin) / (max - min);
             float rawVal;
             rawVal = rawAxisValue(controller, this.id);
@@ -153,10 +153,10 @@ public final class ControllerReader {
         public ControllerID getControllerID() {
             return controller;
         }
-        public float getMin() {
+        public float getRawMin() {
             return min;
         }
-        public float getMax() {
+        public float getRawMax() {
             return max;
         }
     }
