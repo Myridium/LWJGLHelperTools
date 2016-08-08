@@ -69,9 +69,9 @@ public final class ControllerReader {
      * @see         ControllerReader
      */
     public ControllerReader() {
-        JoystickAxes = new HashMap<Joystick, Axis[]>();
-        JoystickDeadzones = new HashMap<Joystick, Float>();
-        TriggerAxes = new HashMap<Trigger, Axis>();
+        JoystickAxes = new HashMap<>();
+        JoystickDeadzones = new HashMap<>();
+        TriggerAxes = new HashMap<>();
     }
     
     /**
@@ -513,10 +513,8 @@ public final class ControllerReader {
                 
                 return true;
 
-	  } catch (ParserConfigurationException pce) {
+	  } catch (ParserConfigurationException | TransformerException pce) {
 		pce.printStackTrace();
-	  } catch (TransformerException tfe) {
-		tfe.printStackTrace();
 	  }
             
         return false;
