@@ -9,7 +9,6 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.util.HashMap;
-import java.util.Map.Entry;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.xml.parsers.*;
@@ -20,20 +19,37 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import org.w3c.dom.Element;
-import org.w3c.dom.Attr;
 import org.w3c.dom.Document;
 import static org.lwjgl.glfw.GLFW.*;
-import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
 
 /**
- * Make sure that glfwPollEvents() is called before using the methods in here.
- * @author murdock
+ * A wrapper class for handling gamepad input.
+ * <p>
+ * Make sure that {@link org.lwjgl.glfw.GLFW#glfwPollEvents()} is called before reading inputs.
+ * This is necessary to update the states of the controllers.
+ * <p>
+ * After instantiating an instance of this class, the user should configure
+ * the axes they intend to use by creating {@link ControllerReader.Axis} objects
+ * and assigning them to the appropriate physical controls represented by the
+ * {@link ControllerReader.Joystick} and {@link ControllerReader.Trigger} enums.
+ * This is accomplished by calling the `setXXXAxes(...)' methods of this class.
+ * <p>
+ * An attempt to read a control which is not yet fully configured (i.e. attempting
+ * to read from a {@link ControllerReader.Joystick} which has not yet been assigned a deadzone)
+ * will result in a {@link ControllerReader.NotConfiguredException} to be thrown.
+ * 
+ * @see ControllerReader.Axis
+ * @see ControllerReader.Joystick
+ * @see ControllerReader.Trigger
+ * @see ControllerReader#setJoystickAxes(LWJGLTools.input.ControllerReader.Joystick, LWJGLTools.input.ControllerReader.Axis, LWJGLTools.input.ControllerReader.Axis) 
+ * @see ControllerReader#setJoystickDeadzone(LWJGLTools.input.ControllerReader.Joystick, float) 
+ * @see ControllerReader#setTriggerAxis(LWJGLTools.input.ControllerReader.Trigger, LWJGLTools.input.ControllerReader.Axis) 
  */
 public final class ControllerReader {
     
-    //Through testing I have determined that on my XBOX 360 controller:
+    //Through testing I have determined that on my XBOX 360 controller on Linux Mint:
         //Axis 0 is the left stick x axis. Left = -1, Right  = 1
         //Axis 1 is the left stick y axis. Top  = -1, Bottom = 1
         //Axis 2 is the left trigger.      Untouched = -1, Fully pressed = 1
@@ -47,12 +63,30 @@ public final class ControllerReader {
     HashMap<Joystick, Float> JoystickDeadzones;
     HashMap<Trigger, Axis> TriggerAxes;
     
+    /**
+     * Returns a new ControllerReader object with a blank configuration.
+     * 
+     * @see         ControllerReader
+     */
     public ControllerReader() {
         JoystickAxes = new HashMap<Joystick, Axis[]>();
         JoystickDeadzones = new HashMap<Joystick, Float>();
         TriggerAxes = new HashMap<Trigger, Axis>();
     }
     
+    /**
+     * An enum listing some of the controllers made available by the LWJGL3 library.
+     * <p>
+     * If no controllers are unplugged, then new controllers will fill the slots
+     * in ascending order. However, if a controller is unplugged, its place is reserved
+     * so that if plugged back in again, it will have the same index.
+     * <p>
+     * In the event that a controller is requested by its ControllerID but no
+     * such controller could be found, a NoControllerException will be thrown.
+     * 
+     * @see         org.lwjgl.glfw.GLFW#GLFW_JOYSTICK_1
+     * @see         NoControllerException
+     */
     public enum ControllerID {
         ONE(GLFW_JOYSTICK_1),
         TWO(GLFW_JOYSTICK_2),
@@ -69,6 +103,17 @@ public final class ControllerReader {
         }
     }
     
+    /**
+     * An enum listing axes by their index. 
+     * <p>
+     * For each ControllerID, there will be
+     * an associated set of axes. There is no way to tell ahead of time how
+     * many axes will be available on a controller, so in the case that an axis
+     * is requested where it cannot be found, a NoSuchAxisException will be thrown.
+     * 
+     * @see         ControllerID
+     * @see         NoSuchAxisException
+     */
     public enum AxisID {
         ZERO(0),
         ONE(1),
@@ -89,18 +134,63 @@ public final class ControllerReader {
         
     }
     
+    /**
+     * A wrapper class for requesting axis data that would otherwise have to be read raw.
+     * Each Axis object is associated with a ControllerID and AxisID on that
+     * controller. 
+     * 
+     * @see         ControllerID
+     * @see         AxisID
+     * @see         Axis#value(float, float)
+     */
     public static class Axis {
         private AxisID id;
         private ControllerID controller;
         private float min, max;
-        public Axis(ControllerID myControllerID, AxisID myAxisID, float minValue, float maxValue) {
-            id = myAxisID;
-            controller = myControllerID;
+        
+        /**
+         * Returns a new Axis object with the specified configuration.
+         * <p>
+         * Note that in general, minValue may be larger than maxValue.
+         * This will reverse the orientation of the axis, returning a different
+         * value when {@link #value(float, float)} is called.
+         * 
+         * @param cid       The ID of the controller which this axis reads from.
+         * @param aid       The ID of the axis from which this Axis reads.
+         * @param minValue  The minimum raw value of the axis as read by {@link org.lwjgl.glfw.GLFW#glfwGetJoystickAxes(int)}.
+         * @param maxValue  The maximum raw value of the axis as read by {@link org.lwjgl.glfw.GLFW#glfwGetJoystickAxes(int)}.
+         */
+        public Axis(ControllerID cid, AxisID aid, float minValue, float maxValue) {
+            id = aid;
+            controller = cid;
             
             // These are MISNOMERS! "min" refers to the down/left/not pressed position.
             min = minValue;
             max = maxValue;
         }
+        
+        /**
+         * Returns a float specifying the current position of the axis mapped
+         * into the range [outMin, outMax].
+         * <p>
+         * Note that in general, outMin may be larger than outMax. If so, the
+         * axis value will be read in the reversed orientation.
+         * <p>
+         * A {@link ControllerReader.NoControllerException} will be thrown when the controller associated
+         * with the axis can not be found. A {@link ControllerReader.NoSuchAxisException} will be thrown
+         * when the associated axis, specified by its {@link AxisID}, cannot be
+         * found on the associated controller.
+         * 
+         * @param outMin The output value to be returned if the raw value of the
+         * axis is `min'.
+         * @param outMax The output value to be returned if the raw value of the
+         * axis is `max'.
+         * @return The current value of the axis mapped onto the range [outMin, outMax].
+         * @throws LWJGLTools.input.ControllerReader.NoControllerException
+         * @throws LWJGLTools.input.ControllerReader.NoSuchAxisException 
+         * @see Axis
+         * @see ControllerReader.Axis#ControllerReader.Axis(LWJGLTools.input.ControllerReader.ControllerID cid, LWJGLTools.input.ControllerReader.AxisID aid, float minValue, float maxValue)
+         */
         public float value(float outMin, float outMax) throws NoControllerException, NoSuchAxisException {
             float scale = (outMax - outMin) / (max - min);
             float rawVal;
@@ -161,6 +251,22 @@ public final class ControllerReader {
         }
     }
     
+    /**
+     * Will read a raw axis value without the need for instantiating an instance
+     * of {@link ControllerReader} or {@link ControllerReader.Axis}.
+     * <p>
+     * Internally, this method uses {@link org.lwjgl.glfw.GLFW#glfwGetJoystickAxes(int)}
+     * to read all raw joystick axis values, then extracts the desired one.
+     * <p>
+     * A {@link ControllerReader.NoControllerException} will be thrown if the specified
+     * controller could not be found. A {@link ControllerReader.NoSuchAxisException}
+     * will be thrown if the controller could be found, but not the specified axis on the controller.
+     * @param cont      The controller to read from.
+     * @param axis      The axis to read from the given controller.
+     * @return          The raw axis value as yielded by {@link org.lwjgl.glfw.GLFW#glfwGetJoystickAxes(int)}.
+     * @throws LWJGLTools.input.ControllerReader.NoControllerException
+     * @throws LWJGLTools.input.ControllerReader.NoSuchAxisException 
+     */
     public static float rawAxisValue(ControllerID cont, AxisID axis) throws NoControllerException, NoSuchAxisException {
         FloatBuffer fb = glfwGetJoystickAxes(cont.value());
         if (fb == null) {
@@ -175,17 +281,67 @@ public final class ControllerReader {
         }
     }
     
+    /**
+     * Associates a physical joystick, specified by a {@link Joystick}, with the
+     * given axes.
+     * 
+     * @param js        The physical joystick to associate with the axes.
+     * @param xAxis     The `x' axis of the joystick.
+     * @param yAxis     The `y' axis of the joystick.
+     * @see ControllerReader.Axis
+     * @see ControllerReader.Joystick
+     */
     public void setJoystickAxes(Joystick js, Axis xAxis, Axis yAxis) {
         Axis[] leftRightAxes = new Axis[]{xAxis, yAxis};
         JoystickAxes.put(js, leftRightAxes);
     }
+    
+    /**
+     * Associates a physical trigger button, specified by a {@link Trigger}, with the
+     * given axis.
+     * 
+     * @param trig      The physical trigger button to associate with the axis.
+     * @param axis      The axis of the trigger.
+     * @see ControllerReader.Axis
+     * @see ControllerReader.Trigger
+     */
     public void setTriggerAxis(Trigger trig, Axis axis) {
         TriggerAxes.put(trig, axis);
     }
+    
+    /**
+     * Sets the deadzone of a physical joystick.
+     * 
+     * @param js            The physical joystick.
+     * @param deadRadius    The deadzone radius (relative to the range determined by {@link ControllerReader.JoystickFilteredState}.
+     * @see ControllerReader.Joystick
+     * @see ControllerReader.JoystickFilteredState
+     */
     public void setJoystickDeadzone(Joystick js, float deadRadius) {
         JoystickDeadzones.put(js, deadRadius);
     }
     
+    /**
+     * Measures the state of the given {@link ControllerReader.Joystick} since
+     * the last call to {@link org.lwjgl.glfw.GLFW#glfwGetJoystickAxes(int)}.
+     * <p>
+     * The exceptions which can be thrown are self-explanatory. 
+     * This method takes into account the configured joystick deadzone,
+     * and the range of its axes. It assumes that the joystick is circular.
+     * <p>
+     * See {@link ControllerReader.JoystickFilteredState} for more information
+     * about the returned object.
+     * 
+     * @param js        The physical joystick to measure.
+     * @return          The filtered state of the joystick.
+     * @throws LWJGLTools.input.ControllerReader.NotConfiguredException
+     * @throws LWJGLTools.input.ControllerReader.NoControllerException
+     * @throws LWJGLTools.input.ControllerReader.NoSuchAxisException 
+     * @see ControllerReader.JoystickFilteredState
+     * @see ControllerReader.NotConfiguredException
+     * @see ControllerReader.NoControllerException
+     * @see ControllerReader.NoSuchAxisException
+     */
     public JoystickFilteredState getJoystickState(Joystick js) throws NotConfiguredException, NoControllerException, NoSuchAxisException {
         
         float xstick, ystick, mag, angle;
@@ -218,6 +374,25 @@ public final class ControllerReader {
         
         return new JoystickFilteredState(mag,angle);
     }
+    
+    /**
+     * Measures the state of the given {@link ControllerReader.Trigger} since
+     * the last call to {@link org.lwjgl.glfw.GLFW#glfwGetJoystickAxes(int)}.
+     * <p>
+     * The exceptions which can be thrown are self-explanatory. 
+     * See {@link ControllerReader.TriggerFilteredState} for more information
+     * about the returned object.
+     * 
+     * @param t         The physical trigger button to measure.
+     * @return          The filtered state of the trigger button.
+     * @throws LWJGLTools.input.ControllerReader.NotConfiguredException
+     * @throws LWJGLTools.input.ControllerReader.NoControllerException
+     * @throws LWJGLTools.input.ControllerReader.NoSuchAxisException 
+     * @see ControllerReader.TriggerFilteredState
+     * @see ControllerReader.NotConfiguredException
+     * @see ControllerReader.NoControllerException
+     * @see ControllerReader.NoSuchAxisException
+     */
     public TriggerFilteredState getTriggerState(Trigger t) throws NoControllerException, NotConfiguredException, NoSuchAxisException {
         
         Axis trigAxis;
@@ -231,15 +406,30 @@ public final class ControllerReader {
         return new TriggerFilteredState(trigAxis.value(0, 1));
     }
     
+    /**
+     * An enum of the physical joysticks present on a gamepad.
+     */
     public enum Joystick {
         LEFT,
         RIGHT;
     }
+    
+    /**
+     * An enum of the physical trigger buttons present on a gamepad.
+     */
     public enum Trigger {
         LEFT,
         RIGHT;
     }
     
+    /**
+     * Writes the existing configuration of this {@link ControllerReader} instance
+     * to an XML file.
+     * 
+     * @param dir   The full target file directory. Should use `/' as a path separator.
+     * @return      Whether the file was successfully written.
+     * @see ControllerReader#readConfig(java.lang.String)
+     */
     public boolean writeConfig(String dir) {
         try {
 
@@ -331,6 +521,17 @@ public final class ControllerReader {
             
         return false;
     }
+    
+    /**
+     * Reads and applies the configuration stored in an XML file produced by {@link ControllerReader#writeConfig(java.lang.String)}.
+     * <p>
+     * This will only apply the configuration parameters that are stored in the XML file.
+     * Other parameters will not be modified.
+     * 
+     * @param dir   The full target file directory. Should use `/' as a path separator.
+     * @return      Whether the file was successfully read, and the configuration applied.
+     * @see ControllerReader#writeConfig(java.lang.String)
+     */
     public boolean readConfig(String dir) {
         try {
             File xmlFile = new File(dir);
@@ -410,31 +611,85 @@ public final class ControllerReader {
         
     }        
     
-    // Varies from 0 to 1
+    /**
+     * An object encapsulating an instantaneous state of a physical trigger.
+     * 
+     * @see ControllerReader.TriggerFilteredState#getValue()
+     */
     public final class TriggerFilteredState {
         private float value;
+        /**
+         * Returns the current value of the trigger.
+         * <p>
+         * 0 corresponds to the trigger being untouched,
+         * and 1 to the trigger being fully depressed.
+         * 
+         * @return  The value of the trigger.
+         */
         public float getValue() {
             return value;
         }
+        
+        // Should only ever be used with a value from 0 to 1!
         protected TriggerFilteredState(float v) {
             value = v;
         }
     }
+    
+    /**
+     * An object encapsulating an instantaneous state of a physical joystick.
+     * <p>
+     * The information about the joystick state is stored in the form of a 
+     * magnitude of displacement from the origin, and an angle.
+     * 
+     * @see ControllerReader.JoystickFilteredState#getMag()
+     * @see ControllerReader.JoystickFilteredState#getAngle()
+     */
     public final class JoystickFilteredState {
+        private static final float TAU = (float)Math.PI*2;
         private float mag;
         private float angle;
+        /**
+         * Returns the magnitude of the joystick displacement from its resting position.
+         * 0 corresponds to resting position, and 1 to fully pushed in any direction.
+         * <p>
+         * Note that in the production of an instance of {@link ControllerReader.JoystickFilteredState},
+         * the deadzone of the joystick will have been taken into account.
+         * 
+         * @return The magnitude of the joystick displacement from its resting position.
+         */
         public float getMag() {
             return mag;
         }
+        
+        /**
+         * Returns the angle of the joystick position. 0 corresponds to the positive x axis,
+         * and pi/2 to the positive y axis.
+         * <p>
+         * Note that in the production of an instance of {@link ControllerReader.JoystickFilteredState},
+         * it will have been assumed that the joystick is (physically) circular. 
+         * Hence this angle will not be correct for an elliptic joystick.
+         * 
+         * @return The angle of the joystick displacement in the range [0, 2*pi). 
+         * 0 = positive x axis. 
+         * pi/2 = positive y axis.
+         */
         public float getAngle() {
-            return angle;
+            float returnAngle = angle % TAU;
+            if (returnAngle < 0)
+                returnAngle += TAU;
+            return returnAngle;
         }
+        // Should only ever be instantiated with a magnitude from 0 to 1!!
         protected JoystickFilteredState(float m, float a) {
             mag = m;
             angle = a;
         }
     }
     
+    /**
+     * An Exception associated with attempting to access a controller where none can be found.
+     */
     public static class NoControllerException extends Exception {
         
         public NoControllerException(String msg) {
@@ -444,6 +699,19 @@ public final class ControllerReader {
             super();
         }
     }
+    /**
+     * An Exception associated with attempting to access the state of a physical
+     * control that has not yet been assigned the necessary configuration.
+     * <p>
+     * If you encounter this Exception, then you probably have not sufficiently
+     * configured the physical control whose state you are trying to access.
+     * A {@link ControllerReader.Joystick} must be assigned both axes, and a deadzone.
+     * A {@link ControllerReader.Trigger} must be assigned an axis.
+     * 
+     * @see ControllerReader#setJoystickAxes(LWJGLTools.input.ControllerReader.Joystick, LWJGLTools.input.ControllerReader.Axis, LWJGLTools.input.ControllerReader.Axis)
+     * @see ControllerReader#setJoystickDeadzone(LWJGLTools.input.ControllerReader.Joystick, float)
+     * @see ControllerReader#setTriggerAxis(LWJGLTools.input.ControllerReader.Trigger, LWJGLTools.input.ControllerReader.Axis)
+     */
     public static class NotConfiguredException extends Exception {
         
         public NotConfiguredException(String msg) {
@@ -453,6 +721,11 @@ public final class ControllerReader {
             super();
         }
     }
+    
+    /**
+     * An Exception associated with trying to read the state of an axis
+     * which cannot be found on the specified controller.
+     */
     public static class NoSuchAxisException extends Exception {
         
         public NoSuchAxisException(String msg) {
