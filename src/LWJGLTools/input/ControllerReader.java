@@ -7,8 +7,11 @@ package LWJGLTools.input;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.FloatBuffer;
 import java.util.HashMap;
+import java.util.Map.Entry;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.xml.parsers.*;
@@ -62,6 +65,7 @@ public final class ControllerReader {
     HashMap<Joystick, Axis[]> JoystickAxes;
     HashMap<Joystick, Float> JoystickDeadzones;
     HashMap<Trigger, Axis> TriggerAxes;
+    HashMap<Button, ButtonContainer> Buttons;
     
     /**
      * Returns a new ControllerReader object with a blank configuration.
@@ -72,6 +76,7 @@ public final class ControllerReader {
         JoystickAxes = new HashMap<>();
         JoystickDeadzones = new HashMap<>();
         TriggerAxes = new HashMap<>();
+        Buttons = new HashMap<>();
     }
     
     /**
@@ -132,6 +137,117 @@ public final class ControllerReader {
             return this.axisID;
         }
         
+    }
+    
+    /**
+     * A container class carrying the ControllerID and ButtonID of a button.
+     */
+    public static class ButtonContainer {
+        private ControllerID cid;
+        private ButtonID bid;
+        
+        public ButtonContainer(ControllerID CID, ButtonID BID) {
+            cid = CID;
+            bid = BID;
+        }
+        
+        public ControllerID getControllerID() {
+            return cid;
+        }
+        public ButtonID getButtonID() {
+            return bid;
+        }
+        
+    }
+    /**
+     * An enum of the button IDs made available by the LWJGL.
+     */
+    public enum ButtonID {
+        
+        ZERO        (0),
+        ONE         (1),
+        TWO         (2),
+        THREE       (3),
+        FOUR        (4),
+        FIVE        (5),
+        SIX         (6),
+        SEVEN       (7),
+        EIGHT       (8),
+        NINE        (9),
+        TEN         (10),
+        ELEVEN      (11),
+        TWELVE      (12),
+        THIRTEEN    (13),
+        FOURTEEN    (14),
+        FIFTEEN     (15),
+        SIXTEEN     (16),
+        SEVENTEEN   (17),
+        EIGHTEEN    (18),
+        NINETEEN    (19),
+        TWENTY      (20);
+        
+        private int buttonID;
+        
+        private ButtonID (int id) {
+            this.buttonID = id;
+        }
+        
+        public int value() {
+            return this.buttonID;
+        }
+    }
+    
+    /**
+     * An enum of the buttons on a typical gamepad.
+     * <p>
+     * Each button is associated with a {@link Button.Group} of buttons.
+     */
+    public enum Button {
+        A(Group.ABXY),
+        B(Group.ABXY),
+        X(Group.ABXY),
+        Y(Group.ABXY),
+        LSTICK(Group.STICKS),
+        RSTICK(Group.STICKS),
+        LB(Group.BUMPERS),
+        RB(Group.BUMPERS),
+        START(Group.MISC),
+        SELECT(Group.MISC);
+        
+        private Group group;
+        
+        private Button(Group group) {
+            this.group = group;
+        }
+        
+        /**
+         * Checks whether the button belongs to a particular group.
+         * 
+         * @param group     The group to check.
+         * @return          Whether this button belongs to the group.
+         */
+        public boolean isInGroup(Group group) {
+            return this.group == group;
+        }
+        
+        /**
+         * Returns the group that this button belongs to.
+         * @return      The Group this belongs to.
+         */
+        public Group group() {
+            return this.group;
+        }
+        
+        /**
+         * An enum of button groups.
+         */
+        public enum Group {
+            ABXY,
+            DPAD,
+            STICKS,
+            BUMPERS,
+            MISC;
+        }
     }
     
     /**
@@ -279,6 +395,77 @@ public final class ControllerReader {
         } catch (NullPointerException e) {
             throw new NoSuchAxisException("The specified axis could not be found on the specified controller.");
         }
+    }
+    
+    /**
+     * Associates a physical button with a {@link ControllerReader.ControllerID}
+     * and {@link ControllerReader.ButtonID} contained within a {@link ControllerReader.ButtonContainer} object.
+     * 
+     * @param b         Physical button.
+     * @param bcont     Container for the controller and button ID.
+     */
+    public void setButton(Button b, ButtonContainer bcont) {
+        Buttons.put(b, bcont);
+    }
+    
+    /**
+     * Checks whether a physical button was depressed during the last call to {@link org.lwjgl.glfw.GLFW#glfwPollEvents()}.
+     * <p>
+     * Will throw a {@link ControllerReader.NotConfiguredException} if the physical
+     * button has not yet been associated with a controller and button ID.
+     * Will throw a {@link ControllerReader.NoControllerException} if the controller
+     * could not be found.
+     * Will throw a {@link ControllerReader.NoSuchButtonException} if the button
+     * could not be found on the controller. (This means that the controller did not have suffficiently many
+     * buttons for the button index to refer to a button present on the controller)
+     * 
+     * @param b     The physical button to check.
+     * @return      Whether or not it was depressed.
+     * @throws LWJGLTools.input.ControllerReader.NotConfiguredException
+     * @throws LWJGLTools.input.ControllerReader.NoControllerException
+     * @throws LWJGLTools.input.ControllerReader.NoSuchButtonException 
+     */
+    public boolean isButtonPressed(Button b) throws NotConfiguredException, NoControllerException, NoSuchButtonException {
+        
+        ButtonContainer bc = Buttons.get(b);
+        if (bc == null)
+            throw new NotConfiguredException();
+        
+        return isRawButtonPressed(bc.getControllerID(), bc.getButtonID());
+    }
+    
+    /**
+     * Checks whether a button was depressed during the last call to {@link org.lwjgl.glfw.GLFW#glfwPollEvents()}.
+     * <p>
+     * Will throw a {@link ControllerReader.NoControllerException} if the controller
+     * could not be found.
+     * Will throw a {@link ControllerReader.NoSuchButtonException} if the button
+     * could not be found on the controller. (This means that the controller did not have suffficiently many
+     * buttons for the button index to refer to a button present on the controller)
+     * 
+     * @param cid     The controller ID.
+     * @param bid     The button ID.
+     * @return      Whether or not it was depressed.
+     * @throws LWJGLTools.input.ControllerReader.NoControllerException
+     * @throws LWJGLTools.input.ControllerReader.NoSuchButtonException 
+     * */
+    public static boolean isRawButtonPressed(ControllerID cid, ButtonID bid) throws NoSuchButtonException, NoControllerException {
+        
+        ByteBuffer bb = glfwGetJoystickButtons(cid.value());
+        if (bb == null) {
+            throw new NoControllerException("Could not find the specified controller.");
+        }
+        
+        boolean pressed;
+        try {
+            byte state = bb.get(bid.value());
+            pressed = (state == GLFW_PRESS);
+            
+        } catch (IndexOutOfBoundsException e) {
+            throw new NoSuchButtonException("The controller does not seem to have this many buttons.");
+        }
+        
+        return pressed;
     }
     
     /**
@@ -474,7 +661,9 @@ public final class ControllerReader {
                         joyEl.appendChild(deadzoneEl);
                     }
                     
-                    rootElement.appendChild(joyEl);
+                    // Only add the node if there's some information in it:
+                    if (joyEl.getChildNodes().getLength() > 0)
+                        rootElement.appendChild(joyEl);
                     
                 }
                 
@@ -482,15 +671,28 @@ public final class ControllerReader {
                 
                 for (Trigger trig : Trigger.values()) {
                     
-                    trigEl = doc.createElement("trigger");
-                    trigEl.setAttribute("which", trig.name());
-                        
                     if (TriggerAxes.containsKey(trig)) {
+                        
+                        trigEl = doc.createElement("trigger");
+                        trigEl.setAttribute("which", trig.name());
+
                         axisEl = TriggerAxes.get(trig).getXMLNode(doc);
                         trigEl.appendChild(axisEl);
+
+                        rootElement.appendChild(trigEl);
                     }
                     
-                    rootElement.appendChild(trigEl);
+                }
+                
+                for (Entry<Button,ButtonContainer> bent : Buttons.entrySet()) {
+                    
+                    Element butEl = doc.createElement("button");
+                    butEl.setAttribute("which", bent.getKey().name());
+                    butEl.setAttribute("bid", String.valueOf(bent.getValue().getButtonID().name()));
+                    butEl.setAttribute("cid", String.valueOf(bent.getValue().getControllerID().name()));
+                    
+                    rootElement.appendChild(butEl);
+                    
                 }
                 
                 
@@ -595,13 +797,22 @@ public final class ControllerReader {
                 
             }
             
+            // Fetching button configuration:
+            NodeList buttonNodes = rootNode.getElementsByTagName("button");
+            for (int i=0; i< buttonNodes.getLength(); i++) {
+                Element butEl = (Element)buttonNodes.item(i);
+                
+                Button b = Button.valueOf(butEl.getAttribute("which"));
+                ControllerID cid = ControllerID.valueOf(butEl.getAttribute("cid"));
+                ButtonID bid = ButtonID.valueOf(butEl.getAttribute("bid"));
+                ButtonContainer bc = new ButtonContainer(cid,bid);
+                
+                this.setButton(b, bc);
+            }
+            
             return true;
             
-        } catch (ParserConfigurationException ex) {
-            Logger.getLogger(ControllerReader.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (SAXException ex) {
-            Logger.getLogger(ControllerReader.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (IOException ex) {
+        } catch (ParserConfigurationException | SAXException | IOException ex) {
             Logger.getLogger(ControllerReader.class.getName()).log(Level.SEVERE, null, ex);
         }
         
@@ -730,6 +941,20 @@ public final class ControllerReader {
             super(msg);
         }
         public NoSuchAxisException() {
+            super();
+        }
+    }
+    
+    /**
+     * An Exception associated with trying to read the state of a button
+     * which cannot be found on the specified controller.
+     */
+    public static class NoSuchButtonException extends Exception {
+        
+        public NoSuchButtonException(String msg) {
+            super(msg);
+        }
+        public NoSuchButtonException() {
             super();
         }
     }
