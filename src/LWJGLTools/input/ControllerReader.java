@@ -8,7 +8,6 @@ package LWJGLTools.input;
 import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.CharBuffer;
 import java.nio.FloatBuffer;
 import java.util.HashMap;
 import java.util.Map.Entry;
@@ -247,6 +246,60 @@ public final class ControllerReader {
             STICKS,
             BUMPERS,
             MISC;
+        }
+    }
+    
+    /**
+     * Creates a and returns new button listener associated with the specified physical button.
+     * 
+     * @param b     The button to which the listener should be attached.
+     * @return      The new {@link ControllerReader.ButtonListener} instance.
+     * @throws LWJGLTools.input.ControllerReader.NotConfiguredException
+     * @throws LWJGLTools.input.ControllerReader.NoControllerException
+     * @throws LWJGLTools.input.ControllerReader.NoSuchButtonException 
+     */
+    public ButtonListener newButtonListener(Button b) throws NotConfiguredException, NoControllerException, NoSuchButtonException {
+        return new ButtonListener(this, b);
+    }
+    /**
+     * A class which provides convenience options for monitoring button input.
+     */
+    public class ButtonListener {
+        
+        ControllerReader controllerReader;
+        Button button;
+        boolean lastState;
+        boolean state;
+        
+        protected ButtonListener(ControllerReader cr, Button b) throws NotConfiguredException, NoControllerException, NoSuchButtonException {
+            controllerReader = cr;
+            button = b;
+            state = cr.isButtonPressed(b);
+            lastState = state;
+        }
+        
+        /**
+         * Updates this button listener with the current state of the button.
+         * <p>
+         * Note that upon creation of this object, the last two states are set to the state of the button at the time of creation.
+         * 
+         * @throws LWJGLTools.input.ControllerReader.NotConfiguredException
+         * @throws LWJGLTools.input.ControllerReader.NoControllerException
+         * @throws LWJGLTools.input.ControllerReader.NoSuchButtonException
+         */
+        public void update() throws NotConfiguredException, NoControllerException, NoSuchButtonException {
+            lastState = state;
+            state = controllerReader.isButtonPressed(button);
+        }
+        /**
+         * Returns whether the button transitioned from an unpressed state to a pressed one between the last two calls to {@link #update()}.
+         * 
+         * @return      Whether the button transitioned from unpressed to pressed since the last call to {@link #update()}.
+         */
+        public boolean isFreshlyPressed() {
+            if (lastState)
+                return false;
+            return state;
         }
     }
     
