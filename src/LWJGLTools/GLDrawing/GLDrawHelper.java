@@ -349,5 +349,26 @@ public class GLDrawHelper {
             }
         glEnd();
     }
+    public static void urchinFill(float x, float y, float sRad, float bRad, int spines, float angle) {
+       
+        int sliceCount = spines*2;
+        float cache,relX,relY;
+
+        glBegin(GL_TRIANGLE_FAN);
+            glVertex2f(x, y); // center of circle
+            for(int i = 0; i <= sliceCount ; i++) { 
+                float rad = ((bRad - sRad)*(i % 2)) + sRad;
+                cache = rad *(float)Math.cos(i * TAU / sliceCount);
+                relY =  rad *(float)Math.sin(i * TAU / sliceCount);
+                relX =  (float)((Math.cos(-angle)*cache) + (Math.sin(-angle)*relY));
+                relY =  (float)((-Math.sin(-angle)*cache) + (Math.cos(-angle)*relY));
+                
+                glVertex2f(
+                    x + relX,
+                    y + relY
+                );
+            }
+        glEnd();
+    }
     
 }
